@@ -1,0 +1,120 @@
+<!-- Ready-to-Deploy GitHub Pages Package for Europe - 2026 Calendar with Chat -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Europe - 2026</title>
+<style>
+body { margin:0; padding:0; font-family:sans-serif; background:#111; color:#eee; }
+header, footer { padding:10px; background:#1b1b1b; text-align:center; }
+.main-container { display:flex; flex:1; gap:10px; padding:20px; flex-wrap:wrap; }
+.calendar-container { flex:3; min-width:300px; display:flex; flex-direction:column; gap:10px; }
+.chat-container { flex:1; min-width:200px; display:flex; flex-direction:column; background:#1b1b1b; border-radius:10px; padding:10px; }
+.chat-header { font-weight:bold; margin-bottom:5px; }
+.chat-messages { flex:1; overflow:auto; margin-bottom:5px; }
+.chat-messages div { padding:4px 6px; margin-bottom:2px; background:#222; border-radius:5px; }
+.chat-messages div span.user { font-weight:bold; margin-right:4px; }
+.chat-messages div span.time { font-size:0.8em; color:#aaa; margin-left:4px; }
+.chat-input { display:flex; gap:5px; margin-top:auto; }
+.chat-input input, .chat-input input.username { flex:1; padding:5px; border-radius:10px; border:none; }
+.grid-month { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; }
+.month-cell { background:#1b1b1b; border-radius:10px; padding:10px; min-height:100px; display:flex; flex-direction:column; gap:5px; cursor:pointer; position:relative; }
+.month-cell.today { border:2px solid orange; }
+.month-cell.clicked { border:2px solid #339aff; }
+.event { padding:5px; border-radius:8px; background:#222; color:#eee; cursor:pointer; display:flex; justify-content:space-between; align-items:center; }
+.event button { margin-left:2px; }
+</style>
+</head>
+<body>
+<header><h2>Europe - 2026</h2></header>
+<div class="main-container">
+<div class="calendar-container">
+<div class="controls">
+<button id="prevMonth">&lt; Prev</button>
+<span id="currentMonth"></span>
+<button id="nextMonth">Next &gt;</button>
+<input id="eventText" placeholder="Event text">
+<input id="eventTime" type="time">
+<button id="addEventBtn">Add</button>
+<div id="errorMessage" style="color:red; font-weight:bold;"></div>
+</div>
+<div id="monthView" class="grid-month"></div>
+</div>
+<div class="chat-container">
+<div class="chat-header">Chat:</div>
+<div class="chat-messages" id="chatMessages"></div>
+<div class="chat-input">
+<input type="text" class="username" id="chatUser" placeholder="Username">
+<input type="text" id="chatInput" placeholder="Type a note...">
+<button id="sendChat">Send</button>
+</div>
+</div>
+</div>
+<footer><small>Offline & Online Supported</small></footer>
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+<script>
+// Firebase config - replace with your credentials
+const firebaseConfig = {
+  apiKey: "REPLACE_WITH_YOUR_API_KEY",
+  authDomain: "REPLACE_WITH_YOUR_AUTH_DOMAIN",
+  databaseURL: "REPLACE_WITH_YOUR_DATABASE_URL",
+  projectId: "REPLACE_WITH_YOUR_PROJECT_ID",
+  storageBucket: "REPLACE_WITH_YOUR_STORAGE_BUCKET",
+  messagingSenderId: "REPLACE_WITH_YOUR_MESSAGING_SENDER_ID",
+  appId: "REPLACE_WITH_YOUR_APP_ID"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// State
+const state={data:{},currentMonth:new Date(),selectedDate:null,chat:[]};
+const monthNames=["January","February","March","April","May","June","July","August","September","October","November","December"];
+const errorMsg=document.getElementById('errorMessage');
+function showError(msg){ errorMsg.textContent=msg; setTimeout(()=>errorMsg.textContent='',3000); }
+
+// Render Functions
+function renderChat(){
+  const container=document.getElementById('chatMessages'); container.innerHTML='';
+  state.chat.forEach(m=>{ const d=document.createElement('div'); d.innerHTML=`<span class='user'>${m.user}:</span> ${m.message} <span class='time'>[${m.time}]</span>`; container.appendChild(d); });
+  container.scrollTop=container.scrollHeight;
+}
+function renderMonth(){
+  const container=document.getElementById('monthView'); container.innerHTML='';
+  const year=state.currentMonth.getFullYear(),month=state.currentMonth.getMonth();
+  const firstDay=new Date(year,month,1).getDay();
+  const daysInMonth=new Date(year,month+1,0).getDate();
+  document.getElementById('currentMonth').textContent=monthNames[month]+' '+year;
+  for(let i=0;i<firstDay;i++) container.appendChild(document.createElement('div'));
+  for(let day=1;day<=daysInMonth;day++){
+    const cell=document.createElement('div'); cell.className='month-cell';
+    const dateKey=`${year}-${month}-${day}`; cell.dataset.dateKey=dateKey;
+    if(new Date().toDateString()===new Date(year,month,day).toDateString()) cell.classList.add('today');
+    if(state.selectedDate===dateKey) cell.classList.add('clicked');
+    cell.innerHTML=`<div class='day-number'>${day}</div>`;
+    cell.addEventListener('click',()=>{ state.selectedDate=dateKey; document.querySelectorAll('.month-cell').forEach(c=>c.classList.remove('clicked')); cell.classList.add('clicked'); });
+    if(state.data[dateKey]){ state.data[dateKey].forEach((ev,i)=>{ const evDiv=document.createElement('div'); evDiv.className='event'; evDiv.textContent=`${ev.time} - ${ev.text}`; const delBtn=document.createElement('button'); delBtn.textContent='X'; delBtn.onclick=()=>{ deleteEvent(dateKey,i); }; evDiv.appendChild(delBtn); cell.appendChild(evDiv); });}
+    container.appendChild(cell);
+  }
+}
+
+// Event Handlers
+function addEvent(){ if(!state.selectedDate){ showError('Select a day first'); return; } const text=document.getElementById('eventText').value.trim(); const time=document.getElementById('eventTime').value; if(!text){ showError('Enter event text'); return; } if(!state.data[state.selectedDate]) state.data[state.selectedDate]=[]; state.data[state.selectedDate].push({text,time}); saveData(); renderMonth(); document.getElementById('eventText').value=''; document.getElementById('eventTime').value=''; }
+function deleteEvent(dateKey,index){ state.data[dateKey].splice(index,1); saveData(); renderMonth(); }
+function saveData(){ db.ref('calendarData').set(state.data); }
+function loadData(){ db.ref('calendarData').on('value',snapshot=>{ state.data = snapshot.val() || {}; renderMonth(); }); }
+function sendChat(){ const user=document.getElementById('chatUser').value.trim() || 'Unknown'; localStorage.setItem('chatUser', user); const message=document.getElementById('chatInput').value.trim(); if(!message) return; db.ref('chat').push({user,message,time:new Date().toLocaleTimeString()}); document.getElementById('chatInput').value=''; }
+function loadChat(){ db.ref('chat').on('value',snapshot=>{ state.chat = snapshot.val() ? Object.values(snapshot.val()) : []; renderChat(); }); }
+
+document.getElementById('addEventBtn').addEventListener('click',addEvent);
+document.getElementById('prevMonth').addEventListener('click',()=>{ state.currentMonth.setMonth(state.currentMonth.getMonth()-1); renderMonth(); });
+document.getElementById('nextMonth').addEventListener('click',()=>{ state.currentMonth.setMonth(state.currentMonth.getMonth()+1); renderMonth(); });
+document.getElementById('sendChat').addEventListener('click',sendChat);
+
+// Load initial data
+loadData(); loadChat();
+</script>
+</body>
+</html>
